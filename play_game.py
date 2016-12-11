@@ -27,10 +27,11 @@ def main():
   print("Start playing game")
 
   ENV_NAME = 'CartPole-v0'
+  # ENV_NAME = 'MountainCar-v0'
   EPISODE = 1000
   STEP = 300
   TEST = 10
-  steps_to_validate = 1
+  steps_to_validate = 10
 
   GAMMA = 0.9  # discount factor for target Q
   INITIAL_EPSILON = 0.5  # starting value of epsilon
@@ -62,6 +63,10 @@ def main():
   cost = tf.reduce_mean(tf.square(y_input - Q_action))
   optimizer = tf.train.AdamOptimizer(0.0001).minimize(cost)
 
+  # TODO: Change to normal session
+  session = tf.InteractiveSession()
+  session.run(tf.initialize_all_variables())
+
   if FLAGS.mode == "train":
     for episode in range(EPISODE):
       # Start new epoisode to train
@@ -69,10 +74,6 @@ def main():
       state = env.reset()
 
       for step in xrange(STEP):
-
-        # TODO: Change to normal session
-        session = tf.InteractiveSession()
-        session.run(tf.initialize_all_variables())
 
         # Get action from exploration and exploitation
         if random.random() <= epsilon:
@@ -127,8 +128,12 @@ def main():
           pass
           #print("Wait for more data to train with batch")
 
-          # Validate for some episode
+        state = next_state
+        if done:
+          break
+
       if episode % steps_to_validate == 0:
+        # Validate for some episode
         print("Start to validate for episode: {}".format(episode))
         state = env.reset()
         total_reward = 0
@@ -142,7 +147,7 @@ def main():
           total_reward += reward
           if done:
             print("done and break with step: {}".format(j))
-            #break
+            break
           else:
             print("not done and continue with step: {}".format(j))
 
