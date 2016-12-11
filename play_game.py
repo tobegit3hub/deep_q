@@ -1,16 +1,18 @@
 #!/usr/bin/env python
 
+from collections import deque
 import gym
 import numpy as np
-import tensorflow as tf
+import os
 import random
-from collections import deque
+import tensorflow as tf
 
 # Define parameters
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
-flags.DEFINE_integer('epoch_number', 10, 'Number of epochs to run trainer.')
+flags.DEFINE_integer('episode_number', 100, 'Number of episode to run trainer.')
+flags.DEFINE_integer('step_number', 300, 'Number of steps for each episode.')
 flags.DEFINE_integer("batch_size", 1024,
                      "indicates batch size in a single gpu, default is 1024")
 flags.DEFINE_string("checkpoint_dir", "./checkpoint/",
@@ -18,7 +20,7 @@ flags.DEFINE_string("checkpoint_dir", "./checkpoint/",
 flags.DEFINE_string("tensorboard_dir", "./tensorboard/",
                     "indicates training output")
 flags.DEFINE_string("optimizer", "adam", "optimizer to train")
-flags.DEFINE_integer('steps_to_validate', 1,
+flags.DEFINE_integer('episode_to_validate', 1,
                      'Steps to validate and print loss')
 flags.DEFINE_string("mode", "train", "Opetion mode: train, inference")
 
@@ -28,8 +30,6 @@ def main():
 
   ENV_NAME = 'CartPole-v0'
   # ENV_NAME = 'MountainCar-v0'
-  EPISODE = 1000
-  STEP = 300
   TEST = 10
   steps_to_validate = 10
 
@@ -43,6 +43,10 @@ def main():
 
   replay_buffer = deque()
   init_op = tf.initialize_all_variables()
+
+  if not os.path.exists(FLAGS.checkpoint_dir):
+    os.makedirs(FLAGS.checkpoint_dir)
+  checkpoint_file = FLAGS.checkpoint_dir + "/checkpoint.ckpt"  
 
   epsilon = INITIAL_EPSILON
   state_dim = env.observation_space.shape[0]
@@ -64,16 +68,25 @@ def main():
   optimizer = tf.train.AdamOptimizer(0.0001).minimize(cost)
 
   # TODO: Change to normal session
-  session = tf.InteractiveSession()
-  session.run(tf.initialize_all_variables())
+  sess = tf.InteractiveSession()
+  sess.run(tf.initialize_all_variables())
+
+  saver = tf.train.Saver()
+  #tf.scalar_summary('loss', loss)
 
   if FLAGS.mode == "train":
-    for episode in range(EPISODE):
+    ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+    if ckpt and ckpt.model_checkpoint_path:
+      print("Continue training from the model {}".format(
+          ckpt.model_checkpoint_path))
+      saver.restore(sess, ckpt.model_checkpoint_path)
+
+    for episode in range(FLAGS.episode_number):
       # Start new epoisode to train
       print("Start to train with episode: {}".format(episode))
       state = env.reset()
 
-      for step in xrange(STEP):
+      for step in xrange(FLAGS.step_number):
 
         # Get action from exploration and exploitation
         if random.random() <= epsilon:
@@ -138,7 +151,7 @@ def main():
         state = env.reset()
         total_reward = 0
 
-        for j in xrange(STEP):
+        for j in xrange(FLAGS.step_number):
           env.render()
           action = np.argmax(Q_value.eval(feed_dict={state_input: [state]})[0])
 
@@ -153,9 +166,13 @@ def main():
 
         print("Eposide: {}, total reward: {}".format(episode, total_reward))
 
+    # End of training process
+    #saver.save(sess, checkpoint_file, global_step=step)
+    saver.save(sess, checkpoint_file)
+
   elif FLAGS.mode == "untrained":
     state = env.reset()
-    for j in xrange(STEP):
+    for j in xrange(step_number):
       env.render()
       action = env.action_space.sample()
       env.step(action)
