@@ -6,6 +6,7 @@ import numpy as np
 import os
 import random
 import tensorflow as tf
+import time
 
 # Define parameters
 flags = tf.app.flags
@@ -14,7 +15,7 @@ flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
 flags.DEFINE_integer('episode_number', 100,
                      'Number of episode to run trainer.')
 flags.DEFINE_integer('step_number', 300, 'Number of steps for each episode.')
-flags.DEFINE_integer("batch_size", 1024,
+flags.DEFINE_integer("batch_size", 32,
                      "indicates batch size in a single gpu, default is 1024")
 flags.DEFINE_string("checkpoint_dir", "./checkpoint/",
                     "indicates the checkpoint dirctory")
@@ -23,8 +24,9 @@ flags.DEFINE_string("tensorboard_dir", "./tensorboard/",
 flags.DEFINE_string("optimizer", "adam", "optimizer to train")
 flags.DEFINE_integer('episode_to_validate', 1,
                      'Steps to validate and print loss')
+flags.DEFINE_string("model", "dnn", "The model to train")
 flags.DEFINE_string("mode", "train", "Opetion mode: train, inference")
-flags.DEFINE_string("gym_env_name", "CartPole-v0",
+flags.DEFINE_string("gym_env", "CartPole-v0",
                     "The gym env, like 'CartPole-v0' or 'MountainCar-v0'")
 flags.DEFINE_boolean("render_game", True, "Render the gym in window or not")
 
@@ -36,50 +38,89 @@ def main():
   INITIAL_EPSILON = 0.5  # starting value of epsilon
   FINAL_EPSILON = 0.01  # final value of epsilon
   REPLAY_SIZE = 10000  # experience replay buffer size
-  BATCH_SIZE = 32  # size of minibatch
 
-  env = gym.make(FLAGS.gym_env_name)
-
+  env = gym.make(FLAGS.gym_env)
   replay_buffer = deque()
-
-  if not os.path.exists(FLAGS.checkpoint_dir):
-    os.makedirs(FLAGS.checkpoint_dir)
-  checkpoint_file = FLAGS.checkpoint_dir + "/checkpoint.ckpt"
-
   epsilon = INITIAL_EPSILON
   state_dim = env.observation_space.shape[0]
   action_dim = env.action_space.n
 
-  W1 = tf.Variable(tf.random_normal([state_dim, 20]))
-  b1 = tf.Variable(tf.random_normal([20]))
-  W2 = tf.Variable(tf.random_normal([20, action_dim]))
-  b2 = tf.Variable(tf.random_normal([action_dim]))
+  # Define the model
+  def dnn_inference(inputs):
+    with tf.variable_scope("fc1"):
+      weights = tf.get_variable("weight",
+                                [state_dim, 20],
+                                initializer=tf.random_normal_initializer())
+      bias = tf.get_variable("bias",
+                             [20],
+                             initializer=tf.random_normal_initializer())
+    layer = tf.add(tf.matmul(inputs, weights), bias)
+    layer = tf.nn.relu(layer)
+
+    with tf.variable_scope("fc2"):
+      weights = tf.get_variable("weight",
+                                [20, action_dim],
+                                initializer=tf.random_normal_initializer())
+      bias = tf.get_variable("bias",
+                             [action_dim],
+                             initializer=tf.random_normal_initializer())
+    layer = tf.add(tf.matmul(layer, weights), bias)
+
+    return layer
+
+  def inference(inputs):
+    print("Use the model: {}".format(FLAGS.model))
+    if FLAGS.model == "dnn":
+      return dnn_inference(inputs)
+    else:
+      print("Unknow model, exit now")
+      exit(1)
 
   state_input = tf.placeholder("float", [None, state_dim])
-  h_layer = tf.nn.relu(tf.matmul(state_input, W1) + b1)
-  Q_value = tf.matmul(h_layer, W2) + b2
-
+  Q_value = inference(state_input)
   action_input = tf.placeholder("float", [None, action_dim])
   y_input = tf.placeholder("float", [None])
   Q_action = tf.reduce_sum(tf.mul(Q_value, action_input), reduction_indices=1)
   loss = tf.reduce_mean(tf.square(y_input - Q_action))
-  train_op = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(loss)
 
+  learning_rate = FLAGS.learning_rate
+  print("Use the optimizer: {}".format(FLAGS.optimizer))
+  if FLAGS.optimizer == "sgd":
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+  elif FLAGS.optimizer == "adadelta":
+    optimizer = tf.train.AdadeltaOptimizer(learning_rate)
+  elif FLAGS.optimizer == "adagrad":
+    optimizer = tf.train.AdagradOptimizer(learning_rate)
+  elif FLAGS.optimizer == "adam":
+    optimizer = tf.train.AdamOptimizer(learning_rate)
+  elif FLAGS.optimizer == "ftrl":
+    optimizer = tf.train.FtrlOptimizer(learning_rate)
+  elif FLAGS.optimizer == "rmsprop":
+    optimizer = tf.train.RMSPropOptimizer(learning_rate)
+  else:
+    print("Unknow optimizer: {}, exit now".format(FLAGS.optimizer))
+    exit(1)
+
+  global_step = tf.Variable(0, name='global_step', trainable=False)
+  train_op = optimizer.minimize(loss, global_step=global_step)
+
+  if not os.path.exists(FLAGS.checkpoint_dir):
+    os.makedirs(FLAGS.checkpoint_dir)
+  checkpoint_file = FLAGS.checkpoint_dir + "/checkpoint.ckpt"
   init_op = tf.initialize_all_variables()
-
   saver = tf.train.Saver()
   tf.scalar_summary('loss', loss)
 
-  if FLAGS.mode == "train":
+  with tf.Session() as sess:
+    summary_op = tf.merge_all_summaries()
+    writer = tf.train.SummaryWriter(FLAGS.tensorboard_dir, sess.graph)
+    sess.run(init_op)
 
-    with tf.Session() as sess:
-      summary_op = tf.merge_all_summaries()
-      writer = tf.train.SummaryWriter(FLAGS.tensorboard_dir, sess.graph)
-      sess.run(init_op)
-
+    if FLAGS.mode == "train":
+      # Restore from checkpoint if it exists
       ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
       if ckpt and ckpt.model_checkpoint_path:
-        print("Continue training from the model {}".format(
+        print("Restore model from the file {}".format(
             ckpt.model_checkpoint_path))
         saver.restore(sess, ckpt.model_checkpoint_path)
 
@@ -109,9 +150,9 @@ def main():
             replay_buffer.popleft()
 
           # Get batch replay experience to train
-          if len(replay_buffer) > BATCH_SIZE:
+          if len(replay_buffer) > FLAGS.batch_size:
 
-            minibatch = random.sample(replay_buffer, BATCH_SIZE)
+            minibatch = random.sample(replay_buffer, FLAGS.batch_size)
             state_batch = [data[0] for data in minibatch]
             action_batch = [data[1] for data in minibatch]
             reward_batch = [data[2] for data in minibatch]
@@ -122,32 +163,25 @@ def main():
             Q_value_batch = sess.run(Q_value,
                                      feed_dict={state_input: next_state_batch})
 
-            for i in range(0, BATCH_SIZE):
+            for i in range(0, FLAGS.batch_size):
               done = minibatch[i][4]
             if done:
               y_batch.append(reward_batch[i])
             else:
               y_batch.append(reward_batch[i] + GAMMA * np.max(Q_value_batch[
                   i]))
-            '''
-            optimizer.run(feed_dict={
-                y_input: y_batch,
-                action_input: action_batch,
-                state_input: state_batch
-            })
-            '''
 
-            _, loss_value = sess.run([train_op, loss],
-                                     feed_dict={
-                                         y_input: y_batch,
-                                         action_input: action_batch,
-                                         state_input: state_batch
-                                     })
+            _, loss_value, step = sess.run(
+                [train_op, loss, global_step],
+                feed_dict={
+                    y_input: y_batch,
+                    action_input: action_batch,
+                    state_input: state_batch
+                })
 
-            print("The loss is: {}".format(loss_value))
+            print("Global step: {}, the loss: {}".format(step, loss_value))
           else:
-            pass
-            #print("Wait for more data to train with batch")
+            print("Add more data to train with batch")
 
           state = next_state
           if done:
@@ -161,39 +195,53 @@ def main():
 
           for j in xrange(FLAGS.step_number):
             if FLAGS.render_game:
+              #time.sleep(0.5)
               env.render()
-
             Q_value2 = sess.run(Q_value, feed_dict={state_input: [state]})
             action = np.argmax(Q_value2[0])
-
-            #action = env.action_space.sample()
             state, reward, done, _ = env.step(action)
             total_reward += reward
             if done:
-              print("done and break with step: {}".format(j))
               break
-            else:
-              print("not done and continue with step: {}".format(j))
 
           print("Eposide: {}, total reward: {}".format(episode, total_reward))
 
       # End of training process
-      #saver.save(sess, checkpoint_file, global_step=step)
-      saver.save(sess, checkpoint_file)
+      saver.save(sess, checkpoint_file, global_step=step)
 
-  elif FLAGS.mode == "untrained":
-    state = env.reset()
-    for j in xrange(step_number):
-      if FLAGS.render_game:
-        env.render()
-      action = env.action_space.sample()
-      env.step(action)
+    elif FLAGS.mode == "untrained":
+      state = env.reset()
+      for i in xrange(FLAGS.step_number):
+        if FLAGS.render_game:
+          env.render()
+        action = env.action_space.sample()
+        next_state, reward, done, _ = env.step(action)
 
-  elif FLAGS.mode == "inference":
-    print("Start to inference")
+    elif FLAGS.mode == "inference":
+      print("Start to inference")
 
-  else:
-    print("Unknown mode: {}".format(FLAGS.mode))
+      # Restore from checkpoint if it exists
+      ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+      if ckpt and ckpt.model_checkpoint_path:
+        print("Restore model from the file {}".format(
+            ckpt.model_checkpoint_path))
+        saver.restore(sess, ckpt.model_checkpoint_path)
+
+      state = env.reset()
+      for i in xrange(FLAGS.step_number):
+        #time.sleep(0.5)
+        if FLAGS.render_game:
+          env.render()
+        Q_value_value = sess.run(Q_value, feed_dict={state_input: [state]})[0]
+        action = np.argmax(Q_value_value)
+        next_state, reward, done, _ = env.step(action)
+        state = next_state
+        if done:
+          print("End of inference because of done")
+          exit(0)
+
+    else:
+      print("Unknown mode: {}".format(FLAGS.mode))
 
   print("End of playing game")
 
