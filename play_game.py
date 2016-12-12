@@ -47,19 +47,20 @@ def main():
 
   # Define the model
   def dnn_inference(inputs):
+    hidden1_unit_number = 20
     with tf.variable_scope("fc1"):
       weights = tf.get_variable("weight",
-                                [state_dim, 20],
+                                [state_dim, hidden1_unit_number],
                                 initializer=tf.random_normal_initializer())
       bias = tf.get_variable("bias",
-                             [20],
+                             [hidden1_unit_number],
                              initializer=tf.random_normal_initializer())
     layer = tf.add(tf.matmul(inputs, weights), bias)
     layer = tf.nn.relu(layer)
 
     with tf.variable_scope("fc2"):
       weights = tf.get_variable("weight",
-                                [20, action_dim],
+                                [hidden1_unit_number, action_dim],
                                 initializer=tf.random_normal_initializer())
       bias = tf.get_variable("bias",
                              [action_dim],
@@ -141,6 +142,7 @@ def main():
 
           next_state, reward, done, _ = env.step(action)
 
+
           # Get new state add to replay experience queue
           one_hot_action = np.zeros(action_dim)
           one_hot_action[action] = 1
@@ -165,11 +167,11 @@ def main():
 
             for i in range(0, FLAGS.batch_size):
               done = minibatch[i][4]
-            if done:
-              y_batch.append(reward_batch[i])
-            else:
-              y_batch.append(reward_batch[i] + GAMMA * np.max(Q_value_batch[
-                  i]))
+              if done:
+                y_batch.append(reward_batch[i])
+              else:
+                y_batch.append(reward_batch[i] + GAMMA * np.max(Q_value_batch[
+                    i]))
 
             _, loss_value, step = sess.run(
                 [train_op, loss, global_step],
@@ -185,6 +187,7 @@ def main():
 
           state = next_state
           if done:
+            print("Done for this episode with these steps to train")
             break
 
         if episode % FLAGS.episode_to_validate == 0:
@@ -195,7 +198,7 @@ def main():
 
           for j in xrange(FLAGS.step_number):
             if FLAGS.render_game:
-              #time.sleep(0.5)
+              # time.sleep(0.1)
               env.render()
             Q_value2 = sess.run(Q_value, feed_dict={state_input: [state]})
             action = np.argmax(Q_value2[0])
@@ -210,12 +213,20 @@ def main():
       saver.save(sess, checkpoint_file, global_step=step)
 
     elif FLAGS.mode == "untrained":
+      total_reward = 0
       state = env.reset()
+
       for i in xrange(FLAGS.step_number):
         if FLAGS.render_game:
+          # time.sleep(0.1)
           env.render()
         action = env.action_space.sample()
         next_state, reward, done, _ = env.step(action)
+        total_reward += reward
+
+        if done:
+          print("End of untrained because of done, reword: {}".format(total_reward))
+          break
 
     elif FLAGS.mode == "inference":
       print("Start to inference")
@@ -227,18 +238,22 @@ def main():
             ckpt.model_checkpoint_path))
         saver.restore(sess, ckpt.model_checkpoint_path)
 
+      total_reward = 0
       state = env.reset()
+
       for i in xrange(FLAGS.step_number):
-        #time.sleep(0.5)
+        # time.sleep(0.1)
         if FLAGS.render_game:
           env.render()
         Q_value_value = sess.run(Q_value, feed_dict={state_input: [state]})[0]
         action = np.argmax(Q_value_value)
         next_state, reward, done, _ = env.step(action)
         state = next_state
+        total_reward += reward
+
         if done:
-          print("End of inference because of done")
-          exit(0)
+          print("End of inference because of done, reword: {}".format(total_reward))
+          break
 
     else:
       print("Unknown mode: {}".format(FLAGS.mode))
