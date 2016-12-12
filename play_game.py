@@ -55,7 +55,17 @@ def main():
       bias = tf.get_variable("bias",
                              [hidden1_unit_number],
                              initializer=tf.random_normal_initializer())
-    layer = tf.add(tf.matmul(inputs, weights), bias)
+      layer = tf.add(tf.matmul(inputs, weights), bias)
+
+    # Batch normalization
+    '''
+      mean, var = tf.nn.moments(layer, axes=[0])
+      scale = tf.get_variable("scale", hidden1_unit_number, initializer=tf.random_normal_initializer())
+      shift = tf.get_variable("shift", hidden1_unit_number, initializer=tf.random_normal_initializer())
+      epsilon = 0.001
+
+    layer = tf.nn.batch_normalization(layer, mean, var, shift, scale, epsilon)
+    '''
     layer = tf.nn.relu(layer)
 
     with tf.variable_scope("fc2"):
@@ -129,6 +139,7 @@ def main():
         # Start new epoisode to train
         print("Start to train with episode: {}".format(episode))
         state = env.reset()
+        loss_value = -999
 
         for step in xrange(FLAGS.step_number):
 
@@ -181,7 +192,6 @@ def main():
                     state_input: state_batch
                 })
 
-            print("Global step: {}, the loss: {}".format(step, loss_value))
           else:
             print("Add more data to train with batch")
 
@@ -193,6 +203,8 @@ def main():
         if episode % FLAGS.episode_to_validate == 0:
           # Validate for some episode
           print("Start to validate for episode: {}".format(episode))
+          print("Global step: {}, the loss: {}".format(step, loss_value))
+
           state = env.reset()
           total_reward = 0
 
@@ -218,7 +230,7 @@ def main():
 
       for i in xrange(FLAGS.step_number):
         if FLAGS.render_game:
-          # time.sleep(0.1)
+          time.sleep(0.1)
           env.render()
         action = env.action_space.sample()
         next_state, reward, done, _ = env.step(action)
@@ -242,7 +254,7 @@ def main():
       state = env.reset()
 
       for i in xrange(FLAGS.step_number):
-        # time.sleep(0.1)
+        time.sleep(0.1)
         if FLAGS.render_game:
           env.render()
         Q_value_value = sess.run(Q_value, feed_dict={state_input: [state]})[0]

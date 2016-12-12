@@ -14,6 +14,10 @@ It's based on gym and Q-learning algorithm. It provides the trainable example wi
 ./play_game.py
 ```
 
+```
+./play_game.py --mode train --gym_env MountainCar-v0 --checkpoint ./checkpoint_mountain --episode_to_validate 10
+```
+
 ### Test
 
 ```
