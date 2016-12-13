@@ -6,6 +6,7 @@ import numpy as np
 import os
 import random
 import tensorflow as tf
+from tensorflow.contrib.session_bundle import exporter
 import time
 
 # Define parameters
@@ -32,6 +33,8 @@ flags.DEFINE_string("mode", "train", "Opetion mode: train, inference")
 flags.DEFINE_string("gym_env", "CartPole-v0",
                     "The gym env, like 'CartPole-v0' or 'MountainCar-v0'")
 flags.DEFINE_boolean("render_game", True, "Render the gym in window or not")
+flags.DEFINE_string("model_path", "./model/", "The output path of the model")
+flags.DEFINE_integer("export_version", 1, "The version number of the model")
 
 
 def main():
@@ -49,8 +52,12 @@ def main():
 
   # For CarPole, the shape is [4, 0]
   # For pacman, the shape is [210, 160, 3]
-  state_dim2 = env.observation_space.shape[1]
-  state_dim3 = env.observation_space.shape[2]
+  if len(env.observation_space.shape) >= 3:
+    state_dim2 = env.observation_space.shape[1]
+    state_dim3 = env.observation_space.shape[2]
+  else:
+    state_dim2 = env.observation_space.shape[0]
+    state_dim3 = env.observation_space.shape[0]
 
   action_dim = env.action_space.n
 
@@ -170,9 +177,9 @@ def main():
   if model == "dnn":
     state_input = tf.placeholder("float", [None, state_dim])
   elif model == "cnn":
-    state_input = tf.placeholder("float", [None, state_dim, state_dim2, state_dim3])
+    state_input = tf.placeholder("float", [None, state_dim, state_dim2,
+                                           state_dim3])
 
-  # tobe
   Q_value = inference(state_input)
 
   action_input = tf.placeholder("float", [None, action_dim])
@@ -277,7 +284,6 @@ def main():
                     state_input: state_batch
                 })
 
-            print("Training")
           else:
             print("Add more data to train with batch")
 
@@ -306,9 +312,22 @@ def main():
               break
 
           print("Eposide: {}, total reward: {}".format(episode, total_reward))
+          saver.save(sess, checkpoint_file, global_step=step)
 
       # End of training process
-      saver.save(sess, checkpoint_file, global_step=step)
+      model_exporter = exporter.Exporter(saver)
+      model_exporter.init(sess.graph.as_graph_def(),
+                          named_graph_signatures={
+                              'inputs': exporter.generic_signature({
+                                  "state": state_input
+                              }),
+                              'outputs': exporter.generic_signature({
+                                  "action": state_input
+                              })
+                          })
+      model_exporter.export(FLAGS.model_path,
+                            tf.constant(FLAGS.export_version), sess)
+      print 'Done exporting!'
 
     elif FLAGS.mode == "untrained":
       total_reward = 0
