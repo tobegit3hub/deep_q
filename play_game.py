@@ -51,7 +51,7 @@ def main():
   state_dim = env.observation_space.shape[0]
 
   # For CarPole, the shape is [4, 0]
-  # For pacman, the shape is [210, 160, 3]
+  # For Pacman, the shape is [210, 160, 3]
   if len(env.observation_space.shape) >= 3:
     state_dim2 = env.observation_space.shape[1]
     state_dim3 = env.observation_space.shape[2]
@@ -66,11 +66,9 @@ def main():
     # The inputs is [BATCH_SIZE, state_dim], outputs is [BATCH_SIZE, action_dim]
     hidden1_unit_number = 20
     with tf.variable_scope("fc1"):
-      weights = tf.get_variable("weight",
-                                [state_dim, hidden1_unit_number],
+      weights = tf.get_variable("weight", [state_dim, hidden1_unit_number],
                                 initializer=tf.random_normal_initializer())
-      bias = tf.get_variable("bias",
-                             [hidden1_unit_number],
+      bias = tf.get_variable("bias", [hidden1_unit_number],
                              initializer=tf.random_normal_initializer())
       layer = tf.add(tf.matmul(inputs, weights), bias)
 
@@ -90,11 +88,9 @@ def main():
     layer = tf.nn.relu(layer)
 
     with tf.variable_scope("fc2"):
-      weights = tf.get_variable("weight",
-                                [hidden1_unit_number, action_dim],
+      weights = tf.get_variable("weight", [hidden1_unit_number, action_dim],
                                 initializer=tf.random_normal_initializer())
-      bias = tf.get_variable("bias",
-                             [action_dim],
+      bias = tf.get_variable("bias", [action_dim],
                              initializer=tf.random_normal_initializer())
     layer = tf.add(tf.matmul(layer, weights), bias)
 
@@ -106,33 +102,25 @@ def main():
 
     # The inputs is [BATCH_SIZE, 210, 160, 3], outputs is [BATCH_SIZE, action_dim]
     with tf.variable_scope("conv1"):
-      weights = tf.get_variable("weights",
-                                [3, 3, 3, 32],
+      weights = tf.get_variable("weights", [3, 3, 3, 32],
                                 initializer=tf.random_normal_initializer())
-      bias = tf.get_variable("bias",
-                             [32],
+      bias = tf.get_variable("bias", [32],
                              initializer=tf.random_normal_initializer())
 
+      # Should not use polling
       layer = tf.nn.conv2d(inputs,
                            weights,
                            strides=[1, 1, 1, 1],
                            padding="SAME")
       layer = tf.nn.bias_add(layer, bias)
       layer = tf.nn.relu(layer)
-      '''
-      layer = tf.nn.max_pool(layer,
-                             ksize=[1, 2, 2, 1],
-                             strides=[1, 2, 2, 1],
-                             padding="SAME")
-      '''
+
 
     # The inputs is [BATCH_SIZE, 210, 160, 32], outputs is [BATCH_SIZE, 210, 160, 64]
     with tf.variable_scope("conv2"):
-      weights = tf.get_variable("weights",
-                                [3, 3, 32, 64],
+      weights = tf.get_variable("weights", [3, 3, 32, 64],
                                 initializer=tf.random_normal_initializer())
-      bias = tf.get_variable("bias",
-                             [64],
+      bias = tf.get_variable("bias", [64],
                              initializer=tf.random_normal_initializer())
 
       layer = tf.nn.conv2d(layer,
@@ -141,45 +129,34 @@ def main():
                            padding="SAME")
       layer = tf.nn.bias_add(layer, bias)
       layer = tf.nn.relu(layer)
-      '''
-      layer = tf.nn.max_pool(layer,
-                             ksize=[1, 2, 2, 1],
-                             strides=[1, 2, 2, 1],
-                             padding="SAME")
-      '''
 
     # Reshape for full-connect network
     layer = tf.reshape(layer, [-1, 210 * 160 * 64])
 
     # Full connected layer result: [BATCH_SIZE, LABEL_SIZE]
     with tf.variable_scope("fc1"):
-      weights = tf.get_variable("weights",
-                                [210 * 160 * 64, LABEL_SIZE],
+      weights = tf.get_variable("weights", [210 * 160 * 64, LABEL_SIZE],
                                 initializer=tf.random_normal_initializer())
-      bias = tf.get_variable("bias",
-                             [LABEL_SIZE],
+      bias = tf.get_variable("bias", [LABEL_SIZE],
                              initializer=tf.random_normal_initializer())
       layer = tf.add(tf.matmul(layer, weights), bias)
 
     return layer
 
-  def inference(inputs):
-    print("Use the model: {}".format(FLAGS.model))
-    if FLAGS.model == "dnn":
-      return dnn_inference(inputs)
-    if FLAGS.model == "cnn":
-      return cnn_inference(inputs)
-    else:
-      print("Unknow model, exit now")
-      exit(1)
-
   model = FLAGS.model
+  print("Use the model: {}".format(model))
   if model == "dnn":
     state_input = tf.placeholder("float", [None, state_dim])
+    inference = dnn_inference
   elif model == "cnn":
     state_input = tf.placeholder("float", [None, state_dim, state_dim2,
                                            state_dim3])
+    inference = cnn_inference
+  else:
+    print("Unknow model, exit now")
+    exit(1)
 
+  # Train op
   Q_value = inference(state_input)
 
   action_input = tf.placeholder("float", [None, action_dim])
@@ -208,6 +185,9 @@ def main():
   global_step = tf.Variable(0, name='global_step', trainable=False)
   train_op = optimizer.minimize(loss, global_step=global_step)
 
+  batch_actions = tf.argmax(Q_value, 1)
+  choose_action = batch_actions[0]
+
   if not os.path.exists(FLAGS.checkpoint_dir):
     os.makedirs(FLAGS.checkpoint_dir)
   checkpoint_file = FLAGS.checkpoint_dir + "/checkpoint.ckpt"
@@ -224,8 +204,9 @@ def main():
       # Restore from checkpoint if it exists
       ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
       if ckpt and ckpt.model_checkpoint_path:
-        print("Restore model from the file {}".format(
-            ckpt.model_checkpoint_path))
+        print(
+            "Restore model from the file {}".format(ckpt.model_checkpoint_path)
+        )
         saver.restore(sess, ckpt.model_checkpoint_path)
 
       for episode in range(FLAGS.episode_number):
@@ -240,17 +221,15 @@ def main():
           if random.random() <= epsilon:
             action = random.randint(0, action_dim - 1)
           else:
-            Q_value_value = sess.run(Q_value,
-                                     feed_dict={state_input: [state]})[0]
-            action = np.argmax(Q_value_value)
+            action = sess.run(choose_action, feed_dict={state_input: [state]})
 
           next_state, reward, done, _ = env.step(action)
 
           # Get new state add to replay experience queue
           one_hot_action = np.zeros(action_dim)
           one_hot_action[action] = 1
-          replay_buffer.append((state, one_hot_action, reward, next_state, done
-                                ))
+          replay_buffer.append((state, one_hot_action, reward, next_state,
+                                done))
           if len(replay_buffer) > REPLAY_SIZE:
             replay_buffer.popleft()
 
@@ -276,13 +255,12 @@ def main():
                 y_batch.append(reward_batch[i] + GAMMA * np.max(Q_value_batch[
                     i]))
 
-            _, loss_value, step = sess.run(
-                [train_op, loss, global_step],
-                feed_dict={
-                    y_input: y_batch,
-                    action_input: action_batch,
-                    state_input: state_batch
-                })
+            _, loss_value, step = sess.run([train_op, loss, global_step],
+                                           feed_dict={
+                                               y_input: y_batch,
+                                               action_input: action_batch,
+                                               state_input: state_batch
+                                           })
 
           else:
             print("Add more data to train with batch")
@@ -304,8 +282,8 @@ def main():
             if FLAGS.render_game:
               # time.sleep(0.1)
               env.render()
-            Q_value2 = sess.run(Q_value, feed_dict={state_input: [state]})
-            action = np.argmax(Q_value2[0])
+
+            action = sess.run(choose_action, feed_dict={state_input: [state]})
             state, reward, done, _ = env.step(action)
             total_reward += reward
             if done:
@@ -319,10 +297,10 @@ def main():
       model_exporter.init(sess.graph.as_graph_def(),
                           named_graph_signatures={
                               'inputs': exporter.generic_signature({
-                                  "state": state_input
+                                  "states": state_input
                               }),
                               'outputs': exporter.generic_signature({
-                                  "action": state_input
+                                  "actions": batch_actions
                               })
                           })
       model_exporter.export(FLAGS.model_path,
@@ -352,8 +330,9 @@ def main():
       # Restore from checkpoint if it exists
       ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
       if ckpt and ckpt.model_checkpoint_path:
-        print("Restore model from the file {}".format(
-            ckpt.model_checkpoint_path))
+        print(
+            "Restore model from the file {}".format(ckpt.model_checkpoint_path)
+        )
         saver.restore(sess, ckpt.model_checkpoint_path)
       else:
         print("Model not found, exit now")
@@ -366,8 +345,8 @@ def main():
         time.sleep(0.1)
         if FLAGS.render_game:
           env.render()
-        Q_value_value = sess.run(Q_value, feed_dict={state_input: [state]})[0]
-        action = np.argmax(Q_value_value)
+
+        action = sess.run(choose_action, feed_dict={state_input: [state]})
         next_state, reward, done, _ = env.step(action)
         state = next_state
         total_reward += reward
@@ -376,6 +355,8 @@ def main():
           print("End of inference because of done, reword: {}".format(
               total_reward))
           break
+
+      print("End of inference but not done, reword: {}".format(total_reward))
 
     else:
       print("Unknown mode: {}".format(FLAGS.mode))
