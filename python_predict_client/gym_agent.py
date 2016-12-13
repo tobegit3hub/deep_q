@@ -18,6 +18,7 @@ flags.DEFINE_integer("model_version", 1, "TensorFlow model version")
 flags.DEFINE_float("request_timeout", 10.0, "Timeout of gRPC request")
 flags.DEFINE_string("gym_env", "CartPole-v0",
                     "The gym env, like 'CartPole-v0' or 'MountainCar-v0'")
+flags.DEFINE_boolean("render_game", True, "Render the gym in window or not")
 
 
 def main():
@@ -40,8 +41,9 @@ def main():
   total_reward = 0
 
   while True:
-    time.sleep(0.1)
-    env.render()
+    if FLAGS.render_game:
+      time.sleep(0.1)
+      env.render()
 
     # Generate inference data
     features = numpy.asarray([state])

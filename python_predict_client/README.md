@@ -1,4 +1,10 @@
-# Python Predict Client
+# Generic Gym Agent
+
+## Introduction
+
+It is the generic gym agent for any gym environments.
+
+You can export TensorFlow models and run with TensorFlow serving. Use `gym_agent.py` to play games with the trained models.
 
 ## Run server
 
@@ -12,8 +18,8 @@
 ./predict_client.py --host 127.0.0.1 --port 9000 --model_name deep_q
 ```
 
-## Agent with model
+## Gym agent
 
 ```
-./play_with_model.py --host 127.0.0.1 --port 9000 --model_name deep_q
+./gym_agent.py --host 127.0.0.1 --port 9000 --model_name deep_q --render_game False --gym_env CartPole-v0
 ```
