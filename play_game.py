@@ -170,13 +170,10 @@ def main():
   if model == "dnn":
     state_input = tf.placeholder("float", [None, state_dim])
   elif model == "cnn":
-    #state_input = tf.placeholder("float", [None, state_dim, state_dim2, state_dim3])
-    cnn_state_input = tf.placeholder("float", [None, state_dim, state_dim2,
-                                               state_dim3])
+    state_input = tf.placeholder("float", [None, state_dim, state_dim2, state_dim3])
 
   # tobe
-  #Q_value = inference(state_input)
-  Q_value = inference(cnn_state_input)
+  Q_value = inference(state_input)
 
   action_input = tf.placeholder("float", [None, action_dim])
   y_input = tf.placeholder("float", [None])
@@ -236,13 +233,8 @@ def main():
           if random.random() <= epsilon:
             action = random.randint(0, action_dim - 1)
           else:
-            # tobe
-            '''
             Q_value_value = sess.run(Q_value,
                                      feed_dict={state_input: [state]})[0]
-            '''
-            Q_value_value = sess.run(Q_value,
-                                     feed_dict={cnn_state_input: [state]})[0]
             action = np.argmax(Q_value_value)
 
           next_state, reward, done, _ = env.step(action)
@@ -266,14 +258,8 @@ def main():
 
             y_batch = []
 
-            # tobe
-            '''
             Q_value_batch = sess.run(Q_value,
                                      feed_dict={state_input: next_state_batch})
-            '''
-            Q_value_batch = sess.run(
-                Q_value,
-                feed_dict={cnn_state_input: next_state_batch})
 
             for i in range(0, FLAGS.batch_size):
               done = minibatch[i][4]
@@ -282,7 +268,7 @@ def main():
               else:
                 y_batch.append(reward_batch[i] + GAMMA * np.max(Q_value_batch[
                     i]))
-            '''
+
             _, loss_value, step = sess.run(
                 [train_op, loss, global_step],
                 feed_dict={
@@ -290,16 +276,8 @@ def main():
                     action_input: action_batch,
                     state_input: state_batch
                 })
-            '''
-            print("Training")
-            _, loss_value, step = sess.run(
-                [train_op, loss, global_step],
-                feed_dict={
-                    y_input: y_batch,
-                    action_input: action_batch,
-                    cnn_state_input: state_batch
-                })
 
+            print("Training")
           else:
             print("Add more data to train with batch")
 
@@ -320,11 +298,7 @@ def main():
             if FLAGS.render_game:
               # time.sleep(0.1)
               env.render()
-            # tobe
-            '''
             Q_value2 = sess.run(Q_value, feed_dict={state_input: [state]})
-            '''
-            Q_value2 = sess.run(Q_value, feed_dict={cnn_state_input: [state]})
             action = np.argmax(Q_value2[0])
             state, reward, done, _ = env.step(action)
             total_reward += reward
@@ -362,6 +336,9 @@ def main():
         print("Restore model from the file {}".format(
             ckpt.model_checkpoint_path))
         saver.restore(sess, ckpt.model_checkpoint_path)
+      else:
+        print("Model not found, exit now")
+        exit(0)
 
       total_reward = 0
       state = env.reset()
@@ -370,12 +347,7 @@ def main():
         time.sleep(0.1)
         if FLAGS.render_game:
           env.render()
-        # tobe
-        '''
         Q_value_value = sess.run(Q_value, feed_dict={state_input: [state]})[0]
-        '''
-        Q_value_value = sess.run(Q_value,
-                                 feed_dict={cnn_state_input: [state]})[0]
         action = np.argmax(Q_value_value)
         next_state, reward, done, _ = env.step(action)
         state = next_state

@@ -8,18 +8,30 @@ It's based on gym and Q-learning algorithm. It provides the trainable example wi
 
 ## Usage
 
-### Train
+### CartPole
 
 ```
 ./play_game.py
 ```
 
+### MountainCar
+
 ```
-./play_game.py --mode train --gym_env MountainCar-v0 --checkpoint ./checkpoint_mountain --episode_to_validate 10
+./play_game.py --mode train --gym_env MountainCar-v0 --checkpoint ./checkpoint_mountain
 ```
 
-### Test
+### Pacman
+
+```
+./play_game.py --mode train --gym_env MsPacman-v0 --checkpoint ./checkpoint_pacman --model cnn
+```
+
+## Test
 
 ```
 ./play_game.py --mode untrained
+```
+
+```
+./play_game.py --mode inference
 ```
