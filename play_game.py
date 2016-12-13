@@ -14,7 +14,8 @@ FLAGS = flags.FLAGS
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
 flags.DEFINE_integer('episode_number', 100,
                      'Number of episode to run trainer.')
-flags.DEFINE_integer('step_number', 300, 'Number of steps for each episode.')
+flags.DEFINE_integer('episode_step_number', 300,
+                     'Number of steps for each episode.')
 flags.DEFINE_integer("batch_size", 32,
                      "indicates batch size in a single gpu, default is 1024")
 flags.DEFINE_string("checkpoint_dir", "./checkpoint/",
@@ -24,7 +25,9 @@ flags.DEFINE_string("tensorboard_dir", "./tensorboard/",
 flags.DEFINE_string("optimizer", "adam", "optimizer to train")
 flags.DEFINE_integer('episode_to_validate', 1,
                      'Steps to validate and print loss')
-flags.DEFINE_string("model", "dnn", "The model to train")
+flags.DEFINE_string("model", "dnn", "The model to train, dnn or cnn")
+flags.DEFINE_boolean("batch_normalization", False,
+                     "Use batch normalization or not")
 flags.DEFINE_string("mode", "train", "Opetion mode: train, inference")
 flags.DEFINE_string("gym_env", "CartPole-v0",
                     "The gym env, like 'CartPole-v0' or 'MountainCar-v0'")
@@ -43,10 +46,17 @@ def main():
   replay_buffer = deque()
   epsilon = INITIAL_EPSILON
   state_dim = env.observation_space.shape[0]
+
+  # For CarPole, the shape is [4, 0]
+  # For pacman, the shape is [210, 160, 3]
+  state_dim2 = env.observation_space.shape[1]
+  state_dim3 = env.observation_space.shape[2]
+
   action_dim = env.action_space.n
 
   # Define the model
   def dnn_inference(inputs):
+    # The inputs is [BATCH_SIZE, state_dim], outputs is [BATCH_SIZE, action_dim]
     hidden1_unit_number = 20
     with tf.variable_scope("fc1"):
       weights = tf.get_variable("weight",
@@ -58,14 +68,18 @@ def main():
       layer = tf.add(tf.matmul(inputs, weights), bias)
 
     # Batch normalization
-    '''
+    if FLAGS.batch_normalization:
       mean, var = tf.nn.moments(layer, axes=[0])
-      scale = tf.get_variable("scale", hidden1_unit_number, initializer=tf.random_normal_initializer())
-      shift = tf.get_variable("shift", hidden1_unit_number, initializer=tf.random_normal_initializer())
+      scale = tf.get_variable("scale",
+                              hidden1_unit_number,
+                              initializer=tf.random_normal_initializer())
+      shift = tf.get_variable("shift",
+                              hidden1_unit_number,
+                              initializer=tf.random_normal_initializer())
       epsilon = 0.001
+      layer = tf.nn.batch_normalization(layer, mean, var, shift, scale,
+                                        epsilon)
 
-    layer = tf.nn.batch_normalization(layer, mean, var, shift, scale, epsilon)
-    '''
     layer = tf.nn.relu(layer)
 
     with tf.variable_scope("fc2"):
@@ -79,16 +93,91 @@ def main():
 
     return layer
 
+  def cnn_inference(inputs):
+    BATCH_SIZE = FLAGS.batch_size
+    LABEL_SIZE = action_dim
+
+    # The inputs is [BATCH_SIZE, 210, 160, 3], outputs is [BATCH_SIZE, action_dim]
+    with tf.variable_scope("conv1"):
+      weights = tf.get_variable("weights",
+                                [3, 3, 3, 32],
+                                initializer=tf.random_normal_initializer())
+      bias = tf.get_variable("bias",
+                             [32],
+                             initializer=tf.random_normal_initializer())
+
+      layer = tf.nn.conv2d(inputs,
+                           weights,
+                           strides=[1, 1, 1, 1],
+                           padding="SAME")
+      layer = tf.nn.bias_add(layer, bias)
+      layer = tf.nn.relu(layer)
+      '''
+      layer = tf.nn.max_pool(layer,
+                             ksize=[1, 2, 2, 1],
+                             strides=[1, 2, 2, 1],
+                             padding="SAME")
+      '''
+
+    # The inputs is [BATCH_SIZE, 210, 160, 32], outputs is [BATCH_SIZE, 210, 160, 64]
+    with tf.variable_scope("conv2"):
+      weights = tf.get_variable("weights",
+                                [3, 3, 32, 64],
+                                initializer=tf.random_normal_initializer())
+      bias = tf.get_variable("bias",
+                             [64],
+                             initializer=tf.random_normal_initializer())
+
+      layer = tf.nn.conv2d(layer,
+                           weights,
+                           strides=[1, 1, 1, 1],
+                           padding="SAME")
+      layer = tf.nn.bias_add(layer, bias)
+      layer = tf.nn.relu(layer)
+      '''
+      layer = tf.nn.max_pool(layer,
+                             ksize=[1, 2, 2, 1],
+                             strides=[1, 2, 2, 1],
+                             padding="SAME")
+      '''
+
+    # Reshape for full-connect network
+    layer = tf.reshape(layer, [-1, 210 * 160 * 64])
+
+    # Full connected layer result: [BATCH_SIZE, LABEL_SIZE]
+    with tf.variable_scope("fc1"):
+      weights = tf.get_variable("weights",
+                                [210 * 160 * 64, LABEL_SIZE],
+                                initializer=tf.random_normal_initializer())
+      bias = tf.get_variable("bias",
+                             [LABEL_SIZE],
+                             initializer=tf.random_normal_initializer())
+      layer = tf.add(tf.matmul(layer, weights), bias)
+
+    return layer
+
   def inference(inputs):
     print("Use the model: {}".format(FLAGS.model))
     if FLAGS.model == "dnn":
       return dnn_inference(inputs)
+    if FLAGS.model == "cnn":
+      return cnn_inference(inputs)
     else:
       print("Unknow model, exit now")
       exit(1)
 
-  state_input = tf.placeholder("float", [None, state_dim])
-  Q_value = inference(state_input)
+  model = FLAGS.model
+  if model == "dnn":
+    state_input = tf.placeholder("float", [None, state_dim])
+  elif model == "cnn":
+    #state_input = tf.placeholder("float", [None, state_dim, state_dim2, state_dim3])
+    cnn_state_input = tf.placeholder("float", [None, state_dim, state_dim2,
+                                               state_dim3])
+
+  # tobe
+  #Q_value = inference(state_input)
+  Q_value = inference(cnn_state_input)
+
   action_input = tf.placeholder("float", [None, action_dim])
   y_input = tf.placeholder("float", [None])
   Q_action = tf.reduce_sum(tf.mul(Q_value, action_input), reduction_indices=1)
@@ -141,18 +230,22 @@ def main():
         state = env.reset()
         loss_value = -999
 
-        for step in xrange(FLAGS.step_number):
+        for step in xrange(FLAGS.episode_step_number):
 
           # Get action from exploration and exploitation
           if random.random() <= epsilon:
             action = random.randint(0, action_dim - 1)
           else:
+            # tobe
+            '''
             Q_value_value = sess.run(Q_value,
                                      feed_dict={state_input: [state]})[0]
+            '''
+            Q_value_value = sess.run(Q_value,
+                                     feed_dict={cnn_state_input: [state]})[0]
             action = np.argmax(Q_value_value)
 
           next_state, reward, done, _ = env.step(action)
-
 
           # Get new state add to replay experience queue
           one_hot_action = np.zeros(action_dim)
@@ -173,8 +266,14 @@ def main():
 
             y_batch = []
 
+            # tobe
+            '''
             Q_value_batch = sess.run(Q_value,
                                      feed_dict={state_input: next_state_batch})
+            '''
+            Q_value_batch = sess.run(
+                Q_value,
+                feed_dict={cnn_state_input: next_state_batch})
 
             for i in range(0, FLAGS.batch_size):
               done = minibatch[i][4]
@@ -183,13 +282,22 @@ def main():
               else:
                 y_batch.append(reward_batch[i] + GAMMA * np.max(Q_value_batch[
                     i]))
-
+            '''
             _, loss_value, step = sess.run(
                 [train_op, loss, global_step],
                 feed_dict={
                     y_input: y_batch,
                     action_input: action_batch,
                     state_input: state_batch
+                })
+            '''
+            print("Training")
+            _, loss_value, step = sess.run(
+                [train_op, loss, global_step],
+                feed_dict={
+                    y_input: y_batch,
+                    action_input: action_batch,
+                    cnn_state_input: state_batch
                 })
 
           else:
@@ -208,11 +316,15 @@ def main():
           state = env.reset()
           total_reward = 0
 
-          for j in xrange(FLAGS.step_number):
+          for j in xrange(FLAGS.episode_step_number):
             if FLAGS.render_game:
               # time.sleep(0.1)
               env.render()
+            # tobe
+            '''
             Q_value2 = sess.run(Q_value, feed_dict={state_input: [state]})
+            '''
+            Q_value2 = sess.run(Q_value, feed_dict={cnn_state_input: [state]})
             action = np.argmax(Q_value2[0])
             state, reward, done, _ = env.step(action)
             total_reward += reward
@@ -228,7 +340,7 @@ def main():
       total_reward = 0
       state = env.reset()
 
-      for i in xrange(FLAGS.step_number):
+      for i in xrange(FLAGS.episode_step_number):
         if FLAGS.render_game:
           time.sleep(0.1)
           env.render()
@@ -237,7 +349,8 @@ def main():
         total_reward += reward
 
         if done:
-          print("End of untrained because of done, reword: {}".format(total_reward))
+          print("End of untrained because of done, reword: {}".format(
+              total_reward))
           break
 
     elif FLAGS.mode == "inference":
@@ -253,18 +366,24 @@ def main():
       total_reward = 0
       state = env.reset()
 
-      for i in xrange(FLAGS.step_number):
+      for i in xrange(FLAGS.episode_step_number):
         time.sleep(0.1)
         if FLAGS.render_game:
           env.render()
+        # tobe
+        '''
         Q_value_value = sess.run(Q_value, feed_dict={state_input: [state]})[0]
+        '''
+        Q_value_value = sess.run(Q_value,
+                                 feed_dict={cnn_state_input: [state]})[0]
         action = np.argmax(Q_value_value)
         next_state, reward, done, _ = env.step(action)
         state = next_state
         total_reward += reward
 
         if done:
-          print("End of inference because of done, reword: {}".format(total_reward))
+          print("End of inference because of done, reword: {}".format(
+              total_reward))
           break
 
     else:
