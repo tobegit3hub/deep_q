@@ -9,17 +9,17 @@ You can export TensorFlow models and run with TensorFlow serving. Use `gym_agent
 ## Run server
 
 ```
-./tensorflow_model_server --port=9000 --model_name=deep_q --model_base_path=/home/tobe/code/deep_q/model
+./tensorflow_model_server --port=9000 --model_name=cartpole --model_base_path=/home/tobe/code/deep_q/model
 ```
 
 ## Predict client
 
 ```
-./predict_client.py --host 127.0.0.1 --port 9000 --model_name deep_q
+./predict_client.py --host 127.0.0.1 --port 9000 --model_name cartpole
 ```
 
 ## Gym agent
 
 ```
-./gym_agent.py --host 127.0.0.1 --port 9000 --model_name deep_q --render_game False --gym_env CartPole-v0
+./gym_agent.py --host 127.0.0.1 --port 9000 --model_name cartpole --render_game False --gym_env CartPole-v0
 ```
