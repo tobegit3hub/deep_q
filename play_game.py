@@ -165,7 +165,7 @@ def main():
   logit = inference(states_placeholder, True)
   actions_placeholder = tf.placeholder(tf.float32, [None, action_number])
   predict_rewords = tf.reduce_sum(
-      tf.mul(logit, actions_placeholder),
+      tf.multiply(logit, actions_placeholder),
       reduction_indices=1)
   rewards_placeholder = tf.placeholder(tf.float32, [None])
   loss = tf.reduce_mean(tf.square(rewards_placeholder - predict_rewords))
@@ -199,14 +199,14 @@ def main():
   if not os.path.exists(FLAGS.checkpoint_dir):
     os.makedirs(FLAGS.checkpoint_dir)
   checkpoint_file = FLAGS.checkpoint_dir + "/checkpoint.ckpt"
-  init_op = tf.initialize_all_variables()
+  init_op = tf.global_variables_initializer()
   saver = tf.train.Saver()
-  tf.scalar_summary("loss", loss)
+  tf.summary.scalar("loss", loss)
 
   # Create session
   with tf.Session() as sess:
-    summary_op = tf.merge_all_summaries()
-    writer = tf.train.SummaryWriter(FLAGS.tensorboard_dir, sess.graph)
+    summary_op = tf.summary.merge_all()
+    writer = tf.summary.FileWriter(FLAGS.tensorboard_dir, sess.graph)
     sess.run(init_op)
 
     if FLAGS.mode == "train":
